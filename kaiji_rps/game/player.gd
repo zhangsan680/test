@@ -13,6 +13,7 @@ var personality: int = 0  ## AIBrain.Personality, ignored for the human
 var hand: Dictionary = {}
 var stars: int = 3
 var money: int = 0
+var debt: int = 0
 var alive: bool = true
 
 func _init(p_id: int = 0, p_name: String = "", human: bool = false) -> void:

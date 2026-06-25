@@ -1,37 +1,47 @@
 extends Node3D
 ## Restricted Rock-Paper-Scissors - the whole presentation layer.
 ## The 3D table, the HUD and the duel flow are all built in code so the
-## scene file can stay a one-line entry point. The rules live in RPSGame.
+## scene file can stay a one-line entry point. The rules and economy live in
+## RPSGame; this node just drives it and renders the result.
 
-enum State { IDLE, RESOLVING, MARKET, FINISHED }
+enum State { IDLE, RESOLVING, MARKET, OFFER, FINISHED }
 
 const NUM_AI: int = 5
 const TABLE_RADIUS: float = 3.2
 const SEAT_RADIUS: float = 3.6
-const AI_TICK: float = 1.3  # seconds between background AI duels
+const AI_TICK: float = 1.3       # seconds between background AI duels
+const INTEREST_TICK: float = 12.0  # seconds between debt interest charges
 
 var game: RPSGame
 var state: int = State.IDLE
 var selected: Player = null
 var ai_accum: float = 0.0
+var interest_accum: float = 0.0
 
 # 3D refs
-var seat_labels: Dictionary = {}      # player id -> Label3D
-var pile_cards: Dictionary = {}       # CardType.Kind -> MeshInstance3D
-var pile_counts: Dictionary = {}      # CardType.Kind -> Label3D
+var seat_labels: Dictionary = {}   # player id -> Label3D
+var pile_cards: Dictionary = {}    # CardType.Kind -> MeshInstance3D
+var pile_counts: Dictionary = {}   # CardType.Kind -> Label3D
 var reveal_nodes: Array = []
 
 # HUD refs
 var status_label: Label
 var hint_label: Label
 var log_box: RichTextLabel
-var opp_buttons: Array = []           # one Button per AI, index aligned to players[1..]
-var rps_buttons: Dictionary = {}      # CardType.Kind -> Button
+var opp_buttons: Array = []        # one Button per AI, aligned to players[1..]
+var rps_buttons: Dictionary = {}   # CardType.Kind -> Button
 var market_btn: Button
 var market_panel: Panel
+var market_info: Label
 var market_msg: Label
+var buy_btn: Button
+var sell_btn: Button
+var borrow_btn: Button
+var repay_btn: Button
 var give_opt: OptionButton
 var get_opt: OptionButton
+var offer_panel: Panel
+var offer_label: Label
 var results_panel: Panel
 var results_label: Label
 
@@ -62,6 +72,12 @@ func _process(delta: float) -> void:
 		ai_accum = 0.0
 		game.random_ai_duel()
 		game.ai_market_tick()
+		_maybe_offer()
+		_refresh()
+	interest_accum += delta
+	if interest_accum >= INTEREST_TICK:
+		interest_accum = 0.0
+		game.accrue_interest()
 		_refresh()
 	_update_status()
 
@@ -191,22 +207,18 @@ func _build_hud() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(root)
 
-	# Status (top-left)
-	var status := _panel(root, Vector2(16, 16), Vector2(300, 170))
-	status_label = _label(status, Vector2(12, 10), Vector2(276, 150), "", 16)
+	var status := _panel(root, Vector2(16, 16), Vector2(300, 190))
+	status_label = _label(status, Vector2(12, 10), Vector2(276, 170), "", 15)
 
-	# Hint (top-center)
 	hint_label = _label(root, Vector2(332, 22), Vector2(620, 30), "", 18)
 
-	# Opponents (left)
-	var opp := _panel(root, Vector2(16, 198), Vector2(300, 410))
+	var opp := _panel(root, Vector2(16, 218), Vector2(300, 392))
 	_label(opp, Vector2(12, 8), Vector2(276, 24), "OPPONENTS  (click to target)", 15)
 	for i in range(NUM_AI):
-		var b := _button(opp, Vector2(12, 40 + i * 70), Vector2(276, 64), "")
+		var b := _button(opp, Vector2(12, 40 + i * 68), Vector2(276, 62), "")
 		b.pressed.connect(_on_opponent.bind(i))
 		opp_buttons.append(b)
 
-	# Log (right)
 	var logp := _panel(root, Vector2(964, 16), Vector2(300, 470))
 	_label(logp, Vector2(12, 8), Vector2(276, 22), "LOG", 15)
 	log_box = RichTextLabel.new()
@@ -215,7 +227,6 @@ func _build_hud() -> void:
 	log_box.scroll_following = true
 	logp.add_child(log_box)
 
-	# Action bar (bottom)
 	var bar := _panel(root, Vector2(332, 632), Vector2(620, 72))
 	var kinds := CardType.all_kinds()
 	for j in range(kinds.size()):
@@ -229,6 +240,7 @@ func _build_hud() -> void:
 	endb.pressed.connect(_finish)
 
 	_build_market_panel(root)
+	_build_offer_panel(root)
 	_build_results_panel(root)
 
 
@@ -261,27 +273,32 @@ func _button(parent: Control, pos: Vector2, sz: Vector2, txt: String) -> Button:
 
 
 func _build_market_panel(root: Control) -> void:
-	market_panel = _panel(root, Vector2(340, 168), Vector2(600, 384))
+	market_panel = _panel(root, Vector2(340, 150), Vector2(600, 432))
 	market_panel.visible = false
 	_label(market_panel, Vector2(16, 12), Vector2(560, 28), "MARKET", 20)
-	_label(market_panel, Vector2(16, 44), Vector2(560, 24),
-		"Stars: buy %d / sell +%d (house spread)." % [RPSGame.STAR_BUY_PRICE, RPSGame.STAR_SELL_PRICE], 14)
-	var buy := _button(market_panel, Vector2(16, 78), Vector2(270, 44), "Buy 1 star (-%d)" % RPSGame.STAR_BUY_PRICE)
-	buy.pressed.connect(_on_buy_star)
-	var sell := _button(market_panel, Vector2(300, 78), Vector2(270, 44), "Sell 1 star (+%d)" % RPSGame.STAR_SELL_PRICE)
-	sell.pressed.connect(_on_sell_star)
+	market_info = _label(market_panel, Vector2(16, 44), Vector2(568, 24), "", 14)
 
-	_label(market_panel, Vector2(16, 138), Vector2(560, 24), "Card swap with your selected opponent (1-for-1):", 14)
-	_label(market_panel, Vector2(16, 172), Vector2(120, 24), "You give:", 14)
-	give_opt = _card_option(market_panel, Vector2(140, 168))
-	_label(market_panel, Vector2(16, 210), Vector2(120, 24), "You get:", 14)
-	get_opt = _card_option(market_panel, Vector2(140, 206))
+	buy_btn = _button(market_panel, Vector2(16, 78), Vector2(270, 44), "Buy 1 star")
+	buy_btn.pressed.connect(_on_buy_star)
+	sell_btn = _button(market_panel, Vector2(300, 78), Vector2(270, 44), "Sell 1 star")
+	sell_btn.pressed.connect(_on_sell_star)
+
+	borrow_btn = _button(market_panel, Vector2(16, 128), Vector2(270, 44), "Borrow")
+	borrow_btn.pressed.connect(_on_borrow)
+	repay_btn = _button(market_panel, Vector2(300, 128), Vector2(270, 44), "Repay")
+	repay_btn.pressed.connect(_on_repay)
+
+	_label(market_panel, Vector2(16, 184), Vector2(560, 24), "Card swap with your selected opponent (1-for-1):", 14)
+	_label(market_panel, Vector2(16, 216), Vector2(120, 24), "You give:", 14)
+	give_opt = _card_option(market_panel, Vector2(140, 212))
+	_label(market_panel, Vector2(16, 252), Vector2(120, 24), "You get:", 14)
+	get_opt = _card_option(market_panel, Vector2(140, 248))
 	get_opt.select(1)  # default to a different kind than "give"
-	var propose := _button(market_panel, Vector2(320, 168), Vector2(250, 44), "Propose swap")
+	var propose := _button(market_panel, Vector2(320, 212), Vector2(250, 44), "Propose swap")
 	propose.pressed.connect(_on_propose_trade)
 
-	market_msg = _label(market_panel, Vector2(16, 252), Vector2(560, 60), "", 14)
-	var close := _button(market_panel, Vector2(16, 322), Vector2(560, 44), "Close")
+	market_msg = _label(market_panel, Vector2(16, 296), Vector2(560, 60), "", 14)
+	var close := _button(market_panel, Vector2(16, 372), Vector2(560, 44), "Close")
 	close.pressed.connect(_close_market)
 
 
@@ -295,14 +312,25 @@ func _card_option(parent: Control, pos: Vector2) -> OptionButton:
 	return o
 
 
+func _build_offer_panel(root: Control) -> void:
+	offer_panel = _panel(root, Vector2(380, 240), Vector2(520, 210))
+	offer_panel.visible = false
+	_label(offer_panel, Vector2(20, 14), Vector2(480, 26), "A DEAL IS OFFERED", 18)
+	offer_label = _label(offer_panel, Vector2(20, 48), Vector2(480, 84), "", 15)
+	var accept := _button(offer_panel, Vector2(20, 144), Vector2(230, 48), "Accept")
+	accept.pressed.connect(_on_accept_offer)
+	var decline := _button(offer_panel, Vector2(270, 144), Vector2(230, 48), "Decline")
+	decline.pressed.connect(_on_decline_offer)
+
+
 func _build_results_panel(root: Control) -> void:
-	results_panel = _panel(root, Vector2(290, 108), Vector2(700, 504))
+	results_panel = _panel(root, Vector2(290, 96), Vector2(700, 528))
 	results_panel.visible = false
 	_label(results_panel, Vector2(20, 16), Vector2(660, 32), "TIME'S UP - FINAL STANDINGS", 22)
-	results_label = _label(results_panel, Vector2(20, 56), Vector2(660, 360), "", 16)
-	var again := _button(results_panel, Vector2(20, 440), Vector2(320, 48), "New Match")
+	results_label = _label(results_panel, Vector2(20, 56), Vector2(660, 384), "", 15)
+	var again := _button(results_panel, Vector2(20, 460), Vector2(320, 48), "New Match")
 	again.pressed.connect(func(): get_tree().reload_current_scene())
-	var quit := _button(results_panel, Vector2(360, 440), Vector2(320, 48), "Quit")
+	var quit := _button(results_panel, Vector2(360, 460), Vector2(320, 48), "Quit")
 	quit.pressed.connect(func(): get_tree().quit())
 
 
@@ -313,6 +341,7 @@ func _refresh() -> void:
 	_update_opponents()
 	_update_seats()
 	_update_piles()
+	_update_market()
 	_update_actions()
 
 
@@ -322,9 +351,10 @@ func _update_status() -> void:
 	var m: int = int(game.time_left) / 60
 	var s: int = int(game.time_left) % 60
 	var h: Player = game.human
-	status_label.text = "TIME  %d:%02d\nYour stars: %d\nYour money: %d\nCards left: %d  (R%d S%d P%d)\nGoal: empty hand + 3+ stars" % [
-		m, s, h.stars, h.money, h.cards_left(),
-		h.count_of(CardType.Kind.ROCK), h.count_of(CardType.Kind.SCISSORS), h.count_of(CardType.Kind.PAPER)]
+	status_label.text = "TIME  %d:%02d\nStars: %d   Cash: %d   Debt: %d\nCards: %d  (R%d S%d P%d)\nStar price ~%d   Net worth %d\nGoal: empty hand + 3+ stars" % [
+		m, s, h.stars, h.money, h.debt, h.cards_left(),
+		h.count_of(CardType.Kind.ROCK), h.count_of(CardType.Kind.SCISSORS), h.count_of(CardType.Kind.PAPER),
+		game.star_price(), game.net_worth(h)]
 
 
 func _update_opponents() -> void:
@@ -360,6 +390,21 @@ func _update_piles() -> void:
 		mi.material_override.albedo_color = base if n > 0 else base.darkened(0.6)
 
 
+func _update_market() -> void:
+	if buy_btn == null:
+		return
+	buy_btn.text = "Buy 1 star (-%d)" % game.star_buy_price()
+	sell_btn.text = "Sell 1 star (+%d)" % game.star_sell_price()
+	borrow_btn.text = "Borrow %d" % RPSGame.LOAN_CHUNK
+	repay_btn.text = "Repay %d" % RPSGame.LOAN_CHUNK
+	buy_btn.disabled = game.human.money < game.star_buy_price()
+	sell_btn.disabled = game.human.stars <= 1
+	borrow_btn.disabled = game.human.debt + RPSGame.LOAN_CHUNK > RPSGame.LOAN_CAP
+	repay_btn.disabled = game.human.debt <= 0 or game.human.money < min(RPSGame.LOAN_CHUNK, game.human.debt)
+	market_info.text = "Buy %d / Sell %d   |   Cash %d   Debt %d (interest every %ds)" % [
+		game.star_buy_price(), game.star_sell_price(), game.human.money, game.human.debt, int(INTEREST_TICK)]
+
+
 func _update_actions() -> void:
 	var can_play: bool = state == State.IDLE and selected != null \
 		and game.can_duel(game.human) and game.can_duel(selected)
@@ -385,6 +430,8 @@ func _update_hint() -> void:
 			hint_label.text = "..."
 		State.MARKET:
 			hint_label.text = "Market open."
+		State.OFFER:
+			hint_label.text = "A deal is on the table - accept or decline."
 		State.FINISHED:
 			hint_label.text = "Match over."
 
@@ -493,19 +540,37 @@ func _close_market() -> void:
 
 func _on_buy_star() -> void:
 	if game.buy_star(game.human):
-		_log("Bought a star for %d." % RPSGame.STAR_BUY_PRICE)
+		_log("Bought a star.")
 		market_msg.text = "Bought a star."
 	else:
-		market_msg.text = "Not enough money."
+		market_msg.text = "Not enough money - try a loan."
 	_refresh()
 
 
 func _on_sell_star() -> void:
 	if game.sell_star(game.human):
-		_log("Sold a star for %d." % RPSGame.STAR_SELL_PRICE)
+		_log("Sold a star.")
 		market_msg.text = "Sold a star."
 	else:
 		market_msg.text = "Can't sell your last star."
+	_refresh()
+
+
+func _on_borrow() -> void:
+	if game.borrow(game.human):
+		_log("Borrowed %d. Debt now %d." % [RPSGame.LOAN_CHUNK, game.human.debt])
+		market_msg.text = "Borrowed %d. It accrues interest." % RPSGame.LOAN_CHUNK
+	else:
+		market_msg.text = "Loan cap reached (%d)." % RPSGame.LOAN_CAP
+	_refresh()
+
+
+func _on_repay() -> void:
+	if game.repay(game.human):
+		_log("Repaid %d. Debt now %d." % [RPSGame.LOAN_CHUNK, game.human.debt])
+		market_msg.text = "Repaid some debt."
+	else:
+		market_msg.text = "Nothing to repay, or not enough cash."
 	_refresh()
 
 
@@ -532,6 +597,51 @@ func _on_propose_trade() -> void:
 	_refresh()
 
 
+# ------------------------------------------------------------------ AI offers
+
+func _maybe_offer() -> void:
+	if state != State.IDLE or not game.offer.is_empty():
+		return
+	if randf() < 0.35:
+		game.generate_offer()
+		if not game.offer.is_empty():
+			_show_offer()
+
+
+func _show_offer() -> void:
+	state = State.OFFER
+	var ai: Player = game.offer["from"]
+	var price: int = game.offer["price"]
+	if game.offer["kind"] == "buy":
+		offer_label.text = "%s wants to BUY one of your stars for %d.\nYou would drop to %d stars and gain %d cash." % [
+			ai.display_name, price, game.human.stars - 1, price]
+	else:
+		offer_label.text = "%s offers to SELL you a star for %d.\nYou would rise to %d stars and pay %d cash." % [
+			ai.display_name, price, game.human.stars + 1, price]
+	offer_panel.visible = true
+	_refresh()
+
+
+func _on_accept_offer() -> void:
+	if game.accept_offer():
+		_log("Deal accepted.")
+	else:
+		_log("The deal fell through.")
+	offer_panel.visible = false
+	if state == State.OFFER:
+		state = State.IDLE
+	_refresh()
+
+
+func _on_decline_offer() -> void:
+	game.decline_offer()
+	offer_panel.visible = false
+	if state == State.OFFER:
+		state = State.IDLE
+	_log("You declined the offer.")
+	_refresh()
+
+
 # ------------------------------------------------------------------ finish
 
 func _finish() -> void:
@@ -541,18 +651,25 @@ func _finish() -> void:
 	state = State.FINISHED
 	_clear_reveal()
 	market_panel.visible = false
-	var lines: Array = []
+	offer_panel.visible = false
+	var g := game
+	var ranked: Array = game.players.duplicate()
+	ranked.sort_custom(func(x, y): return g.net_worth(x) > g.net_worth(y))
 	var you_ok: bool = game.human.survived()
-	lines.append("YOU: %s  (stars %d, cards %d)" % [
-		"SURVIVED" if you_ok else "FAILED", game.human.stars, game.human.cards_left()])
+	var lines: Array = []
+	lines.append("YOU: %s   (stars %d, cards %d, cash %d, debt %d)" % [
+		"SURVIVED" if you_ok else "FAILED",
+		game.human.stars, game.human.cards_left(), game.human.money, game.human.debt])
+	lines.append("Survive = empty hand AND 3+ stars at the bell.")
 	lines.append("")
-	for p in game.players:
-		if p.is_human:
-			continue
+	lines.append("Net-worth ranking (cash + stars - debt):")
+	var rank: int = 1
+	for p in ranked:
 		var verdict: String = "survived" if p.survived() else ("OUT" if not p.alive else "failed")
-		lines.append("%s: %s  (stars %d, cards %d)" % [p.display_name, verdict, p.stars, p.cards_left()])
-	lines.append("")
-	lines.append("Survive = empty hand AND 3+ stars when the clock hits zero.")
+		lines.append("%d. %s%s - %s  (net %d, stars %d, cards %d)" % [
+			rank, p.display_name, "  <- you" if p.is_human else "", verdict,
+			game.net_worth(p), p.stars, p.cards_left()])
+		rank += 1
 	results_label.text = "\n".join(lines)
 	results_panel.visible = true
 	_log("Match over. You %s." % ("SURVIVED" if you_ok else "did not survive"))

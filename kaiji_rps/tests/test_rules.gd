@@ -1,5 +1,5 @@
 extends SceneTree
-## Headless sanity check for the pure rules layer.
+## Headless sanity check for the pure rules + economy layer.
 ## Run from the project folder:
 ##   godot --headless --path . --script res://tests/test_rules.gd
 
@@ -36,12 +36,55 @@ func _initialize() -> void:
 	s.hand[CardType.Kind.ROCK] = 1
 	failed += _check("fail with cards still in hand", not s.survived())
 
-	var m := Player.new(8, "Money", false)
-	m.money = 200
-	var bought: bool = g.buy_star(m)
-	failed += _check("buy star spends money and adds a star",
-		bought and m.stars == 4 and m.money == 200 - RPSGame.STAR_BUY_PRICE)
+	# --- Dynamic star pricing ---
+	g.time_left = RPSGame.MATCH_SECONDS
+	var price_full: int = g.star_price()
+	failed += _check("base price at full time", price_full == RPSGame.STAR_BASE_PRICE)
+	g.time_left = 0.0
+	var price_end: int = g.star_price()
+	failed += _check("price rises as time runs out", price_end > price_full)
+	g.time_left = RPSGame.MATCH_SECONDS
 
+	# --- Star market with dynamic price ---
+	var m := Player.new(8, "Money", false)
+	m.money = 400
+	var buy_price: int = g.star_buy_price()
+	var bought: bool = g.buy_star(m)
+	failed += _check("buy star spends dynamic price and adds a star",
+		bought and m.stars == 4 and m.money == 400 - buy_price)
+
+	# --- Loans + interest ---
+	var d := g.human
+	var cash0: int = d.money
+	g.borrow(d)
+	failed += _check("borrow adds debt and cash", d.debt == RPSGame.LOAN_CHUNK and d.money == cash0 + RPSGame.LOAN_CHUNK)
+	g.repay(d)
+	failed += _check("repay clears debt and cash", d.debt == 0 and d.money == cash0)
+	d.debt = 100
+	g.accrue_interest()
+	failed += _check("interest compounds the debt", d.debt == int(ceil(100 * (1.0 + RPSGame.INTEREST_RATE))))
+
+	# --- Net worth ---
+	var nw := Player.new(7, "NW", false)
+	nw.money = 50
+	nw.stars = 2
+	nw.debt = 30
+	failed += _check("net worth = cash + stars*sell - debt",
+		g.net_worth(nw) == 50 + 2 * g.star_sell_price() - 30)
+
+	# --- AI deal offer (sell a star to you) ---
+	var ai: Player = g.players[2]
+	ai.stars = 3
+	ai.money = 100
+	g.human.stars = 3
+	g.human.money = 200
+	g.offer = {"from": ai, "kind": "sell", "price": 80}
+	var accepted: bool = g.accept_offer()
+	failed += _check("accepting a sell offer moves a star and cash",
+		accepted and g.human.stars == 4 and g.human.money == 120 and ai.stars == 2 and ai.money == 180)
+	failed += _check("offer clears after resolving", g.offer.is_empty())
+
+	# --- Card trade conserves totals ---
 	var p1: Player = g.players[2]
 	var p2: Player = g.players[3]
 	var before: int = p1.cards_left() + p2.cards_left()
