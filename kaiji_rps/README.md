@@ -46,6 +46,29 @@
 - 左上角状态面板实时显示：剩余时间、星星、现金、债务、当前星价、净资产。
 - `End Match Now` → 立即结算（按存活条件判定 + 净资产排名）。
 
+## 网页版（已导出，开箱即用）
+
+`web/` 里是用 Godot 导出好的 WebAssembly 版本，**单线程构建**——不需要特殊的
+跨域响应头（COOP/COEP），任何静态服务器都能托管。
+
+本地运行（**必须走 HTTP，不能直接双击 `index.html`**，浏览器会拦 file:// 加载 wasm）：
+
+```bash
+python3 -m http.server 8000 -d kaiji_rps/web
+# 然后浏览器打开 http://localhost:8000/
+```
+
+也可以直接丢到 GitHub Pages 或任意静态托管（已附 `.nojekyll`）。首次加载需下载
+约 35 MB 的引擎 wasm，请稍候。
+
+改了代码后重新导出：
+
+```bash
+godot --headless --path kaiji_rps --export-release "Web" kaiji_rps/web/index.html
+```
+
+（需要 Godot 4.3 + 对应的 Web 导出模板；导出配置见 `export_presets.cfg`。）
+
 ## 无头逻辑测试
 
 纯规则层（猜拳判定、夺星、存活判定、动态星价、借贷利息、净资产、AI 报价、换牌）
