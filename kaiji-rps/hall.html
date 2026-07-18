@@ -47,6 +47,29 @@
   .star { color: #ffd700; text-shadow: 0 0 8px rgba(255, 215, 0, 0.7); }
   .star-lost { color: #333; }
 
+  /* 公示牌 */
+  .pubboard {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid rgba(255, 215, 0, 0.5);
+    border-radius: 10px;
+    padding: 10px 16px;
+    font-size: 15px;
+  }
+  .pubboard .pub-title { color: #ffd700; font-weight: bold; letter-spacing: 2px; }
+  .pubboard .pub-counts { display: flex; gap: 18px; }
+  .pubboard .pub-counts b { color: #fff; font-size: 18px; }
+  .pubboard .pub-note { font-size: 12px; color: #777; }
+  .toggle {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 13px; color: #aaa; cursor: pointer; user-select: none;
+  }
+  .toggle input { accent-color: #ffd700; cursor: pointer; }
+
   /* 大厅 */
   .hall {
     display: grid;
@@ -69,6 +92,7 @@
   .ai-stars { font-size: 15px; letter-spacing: 1px; }
   .ai-cards { font-size: 13px; color: #aaa; }
   .ai-cards b { color: #fff; }
+  .ai-played { font-size: 12px; color: #c9a227; }
   .ai-status { font-size: 13px; font-weight: bold; }
   .ai-status.cleared { color: #ffd700; }
   .ai-status.eliminated { color: #ff3333; }
@@ -230,6 +254,17 @@
         <span id="my-stars"></span>
         <span id="my-cards"></span>
       </div>
+    </div>
+
+    <div class="pubboard">
+      <span class="pub-title">公示牌 · 全场剩余</span>
+      <span class="pub-counts">
+        <span>✊ 石头 <b id="pub-rock"></b></span>
+        <span>✌️ 剪刀 <b id="pub-scissors"></b></span>
+        <span>✋ 布 <b id="pub-paper"></b></span>
+      </span>
+      <span class="pub-note">含你的手牌 · 出局者的牌随人消失</span>
+      <label class="toggle"><input type="checkbox" id="chk-assist" checked onchange="render()"> 情报代记（关掉则自己记小本）</label>
     </div>
 
     <div class="hall" id="hall"></div>
@@ -456,7 +491,11 @@ function advanceTick() {
     if (ai.status !== 'alive') continue;
     if (ai.stars <= 0) {
       ai.status = 'eliminated';
+      const held = total(ai);
       log(`<span class="bad">${ai.name} 的星耗尽，被黑西装拖走了…</span>`);
+      if (held > 0) {
+        log(`<span class="bad">【公告】${ai.name} 手中的 ${TYPES.map(t => `${ICONS[t]}${ai.cards[t]}`).join(' ')} 共 ${held} 张，随之从场上消失。</span>`);
+      }
     } else if (total(ai) === 0 && ai.stars >= 3) {
       ai.status = 'cleared';
       log(`<span class="good">${ai.name} 打光了所有卡并保住 ${ai.stars} 颗星，通关离场！</span>`);
@@ -500,16 +539,31 @@ function endGame(won, desc) {
   const title = document.getElementById('overlay-title');
   title.textContent = won ? '生 还' : '出 局';
   title.className = won ? 'survive' : 'doom';
-  document.getElementById('overlay-desc').textContent = desc;
+  document.getElementById('overlay-desc').textContent =
+    desc + `　〔本局情报模式：${assistOn() ? '代记' : '手记'} · 用时 ${state.tick} 回合〕`;
   document.getElementById('overlay').classList.remove('hidden');
 }
 
 /* ---------- 渲染 ---------- */
+const assistOn = () => document.getElementById('chk-assist').checked;
+
+// 某 AI 已亮过的牌（起手 4/4/4 是公开规则，亮过 = 4 - 剩余）
+function playedHtml(ai) {
+  const played = TYPES.map(t => `${ICONS[t]}${4 - ai.cards[t]}`).join(' ');
+  return `<div class="ai-played">已亮过：${played}</div>`;
+}
+
 function render() {
   document.getElementById('ticks-left').textContent = MAX_TICKS - state.tick;
   document.getElementById('my-stars').innerHTML = starsHtml(state.player.stars);
   document.getElementById('my-cards').innerHTML =
     TYPES.map(t => `${ICONS[t]}×${state.player.cards[t]}`).join('　') + `（共 ${total(state.player)} 张）`;
+
+  // 公示牌：场上所有存活者（含你）手中剩余的牌，出局者的牌不计入
+  const field = { rock: 0, scissors: 0, paper: 0 };
+  const holders = [state.player, ...state.ais.filter(a => a.status === 'alive')];
+  for (const p of holders) for (const t of TYPES) field[t] += p.cards[t];
+  for (const t of TYPES) document.getElementById('pub-' + t).textContent = field[t];
 
   document.getElementById('hall').innerHTML = state.ais.map((ai, i) => {
     const gone = ai.status !== 'alive';
@@ -523,7 +577,8 @@ function render() {
           <span class="ai-stars">${starsHtml(ai.stars)}</span>
         </div>
         <div class="ai-persona">${PERSONAS[ai.persona].label}</div>
-        <div class="ai-cards">${TYPES.map(t => `${ICONS[t]}<b>${ai.cards[t]}</b>`).join('　')}　共 <b>${total(ai)}</b> 张</div>
+        <div class="ai-cards">手牌 共 <b>${total(ai)}</b> 张</div>
+        ${!gone && assistOn() ? playedHtml(ai) : ''}
         ${statusHtml}
         <button onclick="challenge(${i})" ${gone || total(ai) === 0 || state.over ? 'disabled' : ''}>挑 战</button>
       </div>`;
@@ -536,8 +591,11 @@ function renderMatch() {
   if (state.matchWith === null) return;
   const ai = state.ais[state.matchWith];
   document.getElementById('match-title').textContent = `对战 —— ${ai.name}`;
+  const assistInfo = assistOn()
+    ? `　已亮过 ${TYPES.map(t => `${ICONS[t]}${4 - ai.cards[t]}`).join(' ')}`
+    : '';
   document.getElementById('match-info').innerHTML =
-    `<span>${ai.name}：${starsHtml(ai.stars)}　${TYPES.map(t => `${ICONS[t]}<b>${ai.cards[t]}</b>`).join(' ')}</span>` +
+    `<span>${ai.name}：${starsHtml(ai.stars)}　手牌 <b>${total(ai)}</b> 张${assistInfo}</span>` +
     `<span>你：${starsHtml(state.player.stars)}</span>` +
     `<span>${PERSONAS[ai.persona].desc}</span>`;
   for (const t of TYPES) {
