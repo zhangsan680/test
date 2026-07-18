@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>限定猜拳·会场 - 希望之船</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+    background: linear-gradient(180deg, #0a0a1a 0%, #1a1a2e 50%, #16213e 100%);
+    color: #e0e0e0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px;
+  }
+  h1 {
+    color: #ffd700;
+    text-shadow: 0 0 12px rgba(255, 215, 0, 0.5);
+    letter-spacing: 8px;
+    margin-bottom: 4px;
+    font-size: 26px;
+  }
+  .subtitle { color: #888; font-size: 13px; margin-bottom: 14px; letter-spacing: 2px; }
+  .subtitle a { color: #888; }
+
+  .wrap { width: 100%; max-width: 860px; display: flex; flex-direction: column; gap: 12px; }
+
+  /* 顶栏：时间 + 自己的状态 */
+  .topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 215, 0, 0.3);
+    border-radius: 10px;
+    padding: 12px 16px;
+  }
+  .timer { font-size: 15px; color: #ff6b6b; font-weight: bold; }
+  .timer b { font-size: 20px; }
+  .mystatus { display: flex; gap: 16px; align-items: center; font-size: 14px; flex-wrap: wrap; }
+  .mystatus .myname { color: #4ecdc4; font-weight: bold; }
+  .star { color: #ffd700; text-shadow: 0 0 8px rgba(255, 215, 0, 0.7); }
+  .star-lost { color: #333; }
+
+  /* 公示牌 */
+  .pubboard {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid rgba(255, 215, 0, 0.5);
+    border-radius: 10px;
+    padding: 10px 16px;
+    font-size: 15px;
+  }
+  .pubboard .pub-title { color: #ffd700; font-weight: bold; letter-spacing: 2px; }
+  .pubboard .pub-counts { display: flex; gap: 18px; }
+  .pubboard .pub-counts b { color: #fff; font-size: 18px; }
+  .pubboard .pub-note { font-size: 12px; color: #777; }
+  .toggle {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 13px; color: #aaa; cursor: pointer; user-select: none;
+  }
+  .toggle input { accent-color: #ffd700; cursor: pointer; }
+
+  /* 大厅 */
+  .hall {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 10px;
+  }
+  .ai-card {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .ai-card.gone { opacity: 0.4; }
+  .ai-head { display: flex; justify-content: space-between; align-items: center; }
+  .ai-name { font-weight: bold; color: #ff6b6b; font-size: 15px; }
+  .ai-persona { font-size: 12px; color: #999; }
+  .ai-stars { font-size: 15px; letter-spacing: 1px; }
+  .ai-cards { font-size: 13px; color: #aaa; }
+  .ai-cards b { color: #fff; }
+  .ai-played { font-size: 12px; color: #c9a227; }
+  .ai-status { font-size: 13px; font-weight: bold; }
+  .ai-status.cleared { color: #ffd700; }
+  .ai-status.eliminated { color: #ff3333; }
+  .ai-card button {
+    margin-top: 4px;
+    padding: 7px 0;
+    background: #ffd700;
+    color: #1a1a2e;
+    border: none;
+    border-radius: 5px;
+    font-weight: bold;
+    cursor: pointer;
+    font-size: 14px;
+    letter-spacing: 2px;
+  }
+  .ai-card button:hover:not(:disabled) { background: #ffe44d; }
+  .ai-card button:disabled { background: #444; color: #777; cursor: not-allowed; }
+
+  .actions { display: flex; gap: 10px; }
+  .actions button {
+    flex: 1;
+    padding: 9px 0;
+    background: transparent;
+    color: #aaa;
+    border: 1px solid #555;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+  }
+  .actions button:hover:not(:disabled) { border-color: #ffd700; color: #ffd700; }
+  .actions button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .log {
+    background: rgba(0, 0, 0, 0.4);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13px;
+    color: #999;
+    max-height: 150px;
+    overflow-y: auto;
+    line-height: 1.7;
+  }
+  .log .t-tag { color: #ffd700; }
+  .log .good { color: #4ecdc4; }
+  .log .bad { color: #ff6b6b; }
+
+  /* 对战面板（模态） */
+  .modal-bg {
+    position: fixed; inset: 0;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex; justify-content: center; align-items: center;
+    z-index: 10;
+    padding: 16px;
+  }
+  .match-panel {
+    background: #161628;
+    border: 1px solid rgba(255, 215, 0, 0.4);
+    border-radius: 12px;
+    padding: 20px;
+    width: 100%;
+    max-width: 560px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .match-title { text-align: center; font-size: 18px; font-weight: bold; color: #ffd700; letter-spacing: 3px; }
+  .match-info { display: flex; justify-content: space-between; font-size: 13px; color: #aaa; flex-wrap: wrap; gap: 6px; }
+  .match-info b { color: #fff; }
+
+  .arena {
+    display: flex; justify-content: center; align-items: center; gap: 28px;
+    min-height: 120px;
+    background: rgba(0, 0, 0, 0.35);
+    border-radius: 10px;
+    padding: 10px;
+  }
+  .played-card {
+    width: 76px; height: 104px; border-radius: 8px;
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    font-size: 34px;
+    background: #f5f0e1; color: #222;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6);
+  }
+  .played-card.back {
+    background: repeating-linear-gradient(45deg, #5a1a1a, #5a1a1a 8px, #7a2a2a 8px, #7a2a2a 16px);
+    color: transparent;
+  }
+  .played-card .label { font-size: 12px; margin-top: 3px; color: #555; }
+  .played-card.back .label { color: transparent; }
+  .vs { font-size: 20px; font-weight: bold; color: #ffd700; }
+
+  .result-banner { text-align: center; font-size: 17px; font-weight: bold; min-height: 24px; }
+  .result-banner.win { color: #4ecdc4; }
+  .result-banner.lose { color: #ff6b6b; }
+  .result-banner.draw { color: #ffd700; }
+
+  .hand { display: flex; justify-content: center; gap: 12px; }
+  .hand-card {
+    width: 86px; height: 112px; border-radius: 8px;
+    background: #f5f0e1; color: #222;
+    border: 2px solid transparent;
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    font-size: 32px; cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s;
+    font-family: inherit;
+  }
+  .hand-card:hover:not(:disabled) {
+    transform: translateY(-6px);
+    box-shadow: 0 8px 20px rgba(255, 215, 0, 0.35);
+    border-color: #ffd700;
+  }
+  .hand-card:disabled { background: #444; color: #666; cursor: not-allowed; }
+  .hand-card .cname { font-size: 13px; font-weight: bold; margin-top: 3px; }
+  .hand-card .cnt { font-size: 12px; color: #b22222; margin-top: 2px; }
+  .hand-card:disabled .cnt { color: #666; }
+
+  .match-btns { display: flex; gap: 10px; }
+  .match-btns button {
+    flex: 1; padding: 10px 0;
+    border: none; border-radius: 6px;
+    font-size: 15px; font-weight: bold; cursor: pointer; letter-spacing: 2px;
+  }
+  .btn-again { background: #ffd700; color: #1a1a2e; }
+  .btn-again:hover:not(:disabled) { background: #ffe44d; }
+  .btn-again:disabled { background: #444; color: #777; cursor: not-allowed; }
+  .btn-leave { background: transparent; color: #aaa; border: 1px solid #555 !important; }
+  .btn-leave:hover { border-color: #ffd700 !important; color: #ffd700; }
+
+  /* 结算 */
+  .overlay {
+    position: fixed; inset: 0;
+    background: rgba(0, 0, 0, 0.88);
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    gap: 20px; z-index: 20;
+  }
+  .overlay h2 { font-size: 42px; letter-spacing: 6px; }
+  .overlay .survive { color: #ffd700; text-shadow: 0 0 20px rgba(255, 215, 0, 0.8); }
+  .overlay .doom { color: #ff3333; text-shadow: 0 0 20px rgba(255, 51, 51, 0.8); }
+  .overlay p { color: #ccc; font-size: 16px; max-width: 480px; text-align: center; line-height: 1.7; }
+  .overlay button {
+    padding: 12px 36px; font-size: 18px;
+    background: #ffd700; color: #1a1a2e;
+    border: none; border-radius: 6px; cursor: pointer;
+    font-weight: bold; letter-spacing: 4px;
+  }
+  .overlay button:hover { background: #ffe44d; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+  <h1>限定猜拳 · 会场</h1>
+  <div class="subtitle">—— 希望之船 ESPOIR ——　<a href="index.html">« 返回 1v1 模式</a></div>
+
+  <div class="wrap">
+    <div class="topbar">
+      <div class="timer">剩余时间：<b id="ticks-left"></b> 回合</div>
+      <div class="mystatus">
+        <span class="myname">你（开司）</span>
+        <span id="my-stars"></span>
+        <span id="my-cards"></span>
+      </div>
+    </div>
+
+    <div class="pubboard">
+      <span class="pub-title">公示牌 · 全场剩余</span>
+      <span class="pub-counts">
+        <span>✊ 石头 <b id="pub-rock"></b></span>
+        <span>✌️ 剪刀 <b id="pub-scissors"></b></span>
+        <span>✋ 布 <b id="pub-paper"></b></span>
+      </span>
+      <span class="pub-note">含你的手牌 · 出局者的牌随人消失</span>
+      <label class="toggle"><input type="checkbox" id="chk-assist" checked onchange="render()"> 情报代记（关掉则自己记小本）</label>
+    </div>
+
+    <div class="hall" id="hall"></div>
+
+    <div class="actions">
+      <button id="btn-wait" onclick="waitOneTick()">观望一回合（看别人怎么打）</button>
+    </div>
+
+    <div class="log" id="log"></div>
+  </div>
+
+  <!-- 对战面板 -->
+  <div class="modal-bg hidden" id="match-modal">
+    <div class="match-panel">
+      <div class="match-title" id="match-title"></div>
+      <div class="match-info" id="match-info"></div>
+      <div class="arena">
+        <div class="played-card back" id="enemy-played"><span id="enemy-played-icon">?</span><span class="label" id="enemy-played-label"></span></div>
+        <div class="vs">VS</div>
+        <div class="played-card back" id="my-played"><span id="my-played-icon">?</span><span class="label" id="my-played-label"></span></div>
+      </div>
+      <div class="result-banner" id="result-banner">选一张卡打出</div>
+      <div class="hand">
+        <button class="hand-card" id="btn-rock" onclick="playCard('rock')">✊<span class="cname">石头</span><span class="cnt" id="cnt-rock"></span></button>
+        <button class="hand-card" id="btn-scissors" onclick="playCard('scissors')">✌️<span class="cname">剪刀</span><span class="cnt" id="cnt-scissors"></span></button>
+        <button class="hand-card" id="btn-paper" onclick="playCard('paper')">✋<span class="cname">布</span><span class="cnt" id="cnt-paper"></span></button>
+      </div>
+      <div class="match-btns">
+        <button class="btn-again" id="btn-again" onclick="continueMatch()">再 战</button>
+        <button class="btn-leave" onclick="leaveMatch()">返回大厅</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 结算 -->
+  <div class="overlay hidden" id="overlay">
+    <h2 id="overlay-title"></h2>
+    <p id="overlay-desc"></p>
+    <button onclick="initGame()">再 来 一 局</button>
+  </div>
+
+<script>
+const TYPES = ['rock', 'scissors', 'paper'];
+const NAMES = { rock: '石头', scissors: '剪刀', paper: '布' };
+const ICONS = { rock: '✊', scissors: '✌️', paper: '✋' };
+const BEATS = { rock: 'scissors', scissors: 'paper', paper: 'rock' };
+const BEATEN_BY = { rock: 'paper', scissors: 'rock', paper: 'scissors' };
+
+const MAX_TICKS = 30;
+
+// 性格：影响 AI 的出牌算法
+const PERSONAS = {
+  cunning:      { label: '狡猾 · 算牌精准', desc: '紧盯你的剩牌，极少失误' },
+  aggressive:   { label: '激进 · 一心夺星', desc: '只想赢，不惜冒险' },
+  conservative: { label: '保守 · 平衡牌型', desc: '优先打多余的牌，稳扎稳打' },
+  random:       { label: '随性 · 不可预测', desc: '完全凭感觉出牌' },
+};
+
+const AI_POOL = [
+  { name: '船井', persona: 'cunning' },
+  { name: '安藤', persona: 'aggressive' },
+  { name: '古畑', persona: 'conservative' },
+  { name: '石田', persona: 'conservative' },
+  { name: '北见', persona: 'cunning' },
+  { name: '佐原', persona: 'aggressive' },
+  { name: '桥本', persona: 'random' },
+];
+
+let state;
+
+function initGame() {
+  state = {
+    tick: 0,
+    player: { stars: 3, cards: { rock: 4, scissors: 4, paper: 4 }, status: 'alive' },
+    ais: AI_POOL.map(a => ({
+      ...a,
+      stars: 3,
+      cards: { rock: 4, scissors: 4, paper: 4 },
+      status: 'alive',   // alive | cleared | eliminated
+    })),
+    matchWith: null,     // 正在对战的 AI 下标
+    busy: false,
+    over: false,
+  };
+  document.getElementById('overlay').classList.add('hidden');
+  document.getElementById('match-modal').classList.add('hidden');
+  document.getElementById('log').innerHTML = '';
+  log('登船。规则：在 30 回合内打光手中 12 张卡，并保住至少 3 颗星，方可生还。');
+  render();
+}
+
+const total = p => p.cards.rock + p.cards.scissors + p.cards.paper;
+
+/* ---------- AI 出牌算法 ---------- */
+// oppCards：对手（公开的）剩牌分布
+function aiChoose(ai, oppCards) {
+  const oppTotal = oppCards.rock + oppCards.scissors + oppCards.paper;
+  const avail = TYPES.filter(t => ai.cards[t] > 0);
+  if (avail.length === 1) return avail[0];
+
+  let best = null, bestScore = -Infinity;
+  for (const t of avail) {
+    const winP  = oppTotal ? oppCards[BEATS[t]] / oppTotal : 0.33;
+    const loseP = oppTotal ? oppCards[BEATEN_BY[t]] / oppTotal : 0.33;
+    let score;
+    switch (ai.persona) {
+      case 'cunning':      score = (winP - loseP) + Math.random() * 0.15; break;
+      case 'aggressive':   score = winP + Math.random() * 0.3; break;
+      case 'conservative': score = ai.cards[t] / total(ai) + (winP - loseP) * 0.3 + Math.random() * 0.15; break;
+      default:             score = Math.random();
+    }
+    if (score > bestScore) { bestScore = score; best = t; }
+  }
+  return best;
+}
+
+/* ---------- 单次交锋（任意两人） ---------- */
+// 返回 'a' | 'b' | 'draw'
+function resolve(cardA, cardB) {
+  if (cardA === cardB) return 'draw';
+  return BEATS[cardA] === cardB ? 'a' : 'b';
+}
+
+function settle(pA, pB, cardA, cardB) {
+  pA.cards[cardA]--;
+  pB.cards[cardB]--;
+  const r = resolve(cardA, cardB);
+  if (r === 'a') { pA.stars++; pB.stars--; }
+  if (r === 'b') { pB.stars++; pA.stars--; }
+  return r;
+}
+
+/* ---------- 玩家对战流程 ---------- */
+function challenge(i) {
+  if (state.over || state.busy) return;
+  const ai = state.ais[i];
+  if (ai.status !== 'alive' || total(ai) === 0) return;
+  state.matchWith = i;
+  resetArena();
+  setBanner('选一张卡打出', '');
+  document.getElementById('btn-again').classList.add('hidden');
+  document.getElementById('match-modal').classList.remove('hidden');
+  renderMatch();
+}
+
+function playCard(myType) {
+  if (state.over || state.busy || state.matchWith === null) return;
+  if (state.player.cards[myType] === 0) return;
+  state.busy = true;
+
+  const ai = state.ais[state.matchWith];
+  const aiType = aiChoose(ai, state.player.cards);
+  const r = settle(state.player, ai, myType, aiType);
+
+  showCard('my', myType);
+  showCard('enemy', aiType);
+
+  let text, cls;
+  if (r === 'draw')   { text = '平局！双方的卡作废'; cls = 'draw'; }
+  else if (r === 'a') { text = `你赢了！夺走 ${ai.name} 一颗星 ★`; cls = 'win'; }
+  else                { text = `你输了…被 ${ai.name} 夺走一颗星`; cls = 'lose'; }
+  setBanner(text, cls);
+  log(`<span class="t-tag">[第${state.tick + 1}回合]</span> 你 vs ${ai.name}：${NAMES[myType]} 对 ${NAMES[aiType]} —— ${cls === 'win' ? '<span class="good">胜</span>' : cls === 'lose' ? '<span class="bad">败</span>' : '平'}`);
+
+  advanceTick();         // 消耗 1 回合，会场其他人也会打
+  render();
+  renderMatch();
+
+  setTimeout(() => {
+    state.busy = false;
+    if (checkPlayerFate()) return;
+    // 对手中途出局/通关，强制返回大厅
+    const cur = state.ais[state.matchWith];
+    if (!cur || cur.status !== 'alive' || total(cur) === 0) {
+      leaveMatch();
+      return;
+    }
+    document.getElementById('btn-again').classList.remove('hidden');
+  }, 1100);
+}
+
+function continueMatch() {
+  resetArena();
+  setBanner('选一张卡打出', '');
+  document.getElementById('btn-again').classList.add('hidden');
+  renderMatch();
+}
+
+function leaveMatch() {
+  state.matchWith = null;
+  document.getElementById('match-modal').classList.add('hidden');
+  render();
+}
+
+function waitOneTick() {
+  if (state.over || state.busy) return;
+  log(`<span class="t-tag">[第${state.tick + 1}回合]</span> 你按兵不动，观察着会场…`);
+  advanceTick();
+  checkPlayerFate();
+  render();
+}
+
+/* ---------- 回合推进：会场里 AI 互相对战 ---------- */
+function advanceTick() {
+  state.tick++;
+
+  // 随机撮合 1~2 场 AI 对局
+  const rounds = 1 + Math.floor(Math.random() * 2);
+  for (let k = 0; k < rounds; k++) {
+    const pool = state.ais.filter(a => a.status === 'alive' && total(a) > 0);
+    if (pool.length < 2) break;
+    const a = pool[Math.floor(Math.random() * pool.length)];
+    let b = pool[Math.floor(Math.random() * pool.length)];
+    if (a === b) continue;
+    const ca = aiChoose(a, b.cards);
+    const cb = aiChoose(b, a.cards);
+    const r = settle(a, b, ca, cb);
+    const rText = r === 'draw' ? '平' : r === 'a' ? `${a.name} 胜` : `${b.name} 胜`;
+    log(`<span class="t-tag">[第${state.tick}回合]</span> ${a.name} vs ${b.name}：${NAMES[ca]} 对 ${NAMES[cb]} —— ${rText}`);
+  }
+
+  // 结算所有 AI 的命运
+  for (const ai of state.ais) {
+    if (ai.status !== 'alive') continue;
+    if (ai.stars <= 0) {
+      ai.status = 'eliminated';
+      const held = total(ai);
+      log(`<span class="bad">${ai.name} 的星耗尽，被黑西装拖走了…</span>`);
+      if (held > 0) {
+        log(`<span class="bad">【公告】${ai.name} 手中的 ${TYPES.map(t => `${ICONS[t]}${ai.cards[t]}`).join(' ')} 共 ${held} 张，随之从场上消失。</span>`);
+      }
+    } else if (total(ai) === 0 && ai.stars >= 3) {
+      ai.status = 'cleared';
+      log(`<span class="good">${ai.name} 打光了所有卡并保住 ${ai.stars} 颗星，通关离场！</span>`);
+    } else if (total(ai) === 0) {
+      ai.status = 'eliminated';
+      log(`<span class="bad">${ai.name} 卡牌用尽但星不足 3 颗，出局。</span>`);
+    }
+  }
+}
+
+/* ---------- 玩家命运判定，返回 true 表示游戏已结束 ---------- */
+function checkPlayerFate() {
+  const p = state.player;
+  if (p.stars <= 0) {
+    endGame(false, '星全部失去…黑西装们朝你走来。');
+    return true;
+  }
+  if (total(p) === 0) {
+    if (p.stars >= 3) {
+      endGame(true, `全部 12 张卡使用完毕，你保住了 ${p.stars} 颗星 —— 通关生还！`);
+    } else {
+      endGame(false, `卡牌用尽，但你只剩 ${p.stars} 颗星（需要 3 颗），再也无法翻盘…出局。`);
+    }
+    return true;
+  }
+  if (state.tick >= MAX_TICKS) {
+    endGame(false, `时间到！你手上还剩 ${total(p)} 张卡没有打出 —— 违反规则，出局。`);
+    return true;
+  }
+  // 没有可挑战的对手了
+  if (!state.ais.some(a => a.status === 'alive' && total(a) > 0)) {
+    endGame(false, '会场里已经没有可以对战的对手，你手中的卡再也打不出去了…出局。');
+    return true;
+  }
+  return false;
+}
+
+function endGame(won, desc) {
+  state.over = true;
+  document.getElementById('match-modal').classList.add('hidden');
+  const title = document.getElementById('overlay-title');
+  title.textContent = won ? '生 还' : '出 局';
+  title.className = won ? 'survive' : 'doom';
+  document.getElementById('overlay-desc').textContent =
+    desc + `　〔本局情报模式：${assistOn() ? '代记' : '手记'} · 用时 ${state.tick} 回合〕`;
+  document.getElementById('overlay').classList.remove('hidden');
+}
+
+/* ---------- 渲染 ---------- */
+const assistOn = () => document.getElementById('chk-assist').checked;
+
+// 某 AI 已亮过的牌（起手 4/4/4 是公开规则，亮过 = 4 - 剩余）
+function playedHtml(ai) {
+  const played = TYPES.map(t => `${ICONS[t]}${4 - ai.cards[t]}`).join(' ');
+  return `<div class="ai-played">已亮过：${played}</div>`;
+}
+
+function render() {
+  document.getElementById('ticks-left').textContent = MAX_TICKS - state.tick;
+  document.getElementById('my-stars').innerHTML = starsHtml(state.player.stars);
+  document.getElementById('my-cards').innerHTML =
+    TYPES.map(t => `${ICONS[t]}×${state.player.cards[t]}`).join('　') + `（共 ${total(state.player)} 张）`;
+
+  // 公示牌：场上所有存活者（含你）手中剩余的牌，出局者的牌不计入
+  const field = { rock: 0, scissors: 0, paper: 0 };
+  const holders = [state.player, ...state.ais.filter(a => a.status === 'alive')];
+  for (const p of holders) for (const t of TYPES) field[t] += p.cards[t];
+  for (const t of TYPES) document.getElementById('pub-' + t).textContent = field[t];
+
+  document.getElementById('hall').innerHTML = state.ais.map((ai, i) => {
+    const gone = ai.status !== 'alive';
+    let statusHtml = '';
+    if (ai.status === 'cleared')    statusHtml = '<div class="ai-status cleared">已通关离场</div>';
+    if (ai.status === 'eliminated') statusHtml = '<div class="ai-status eliminated">已出局</div>';
+    return `
+      <div class="ai-card ${gone ? 'gone' : ''}">
+        <div class="ai-head">
+          <span class="ai-name">${ai.name}</span>
+          <span class="ai-stars">${starsHtml(ai.stars)}</span>
+        </div>
+        <div class="ai-persona">${PERSONAS[ai.persona].label}</div>
+        <div class="ai-cards">手牌 共 <b>${total(ai)}</b> 张</div>
+        ${!gone && assistOn() ? playedHtml(ai) : ''}
+        ${statusHtml}
+        <button onclick="challenge(${i})" ${gone || total(ai) === 0 || state.over ? 'disabled' : ''}>挑 战</button>
+      </div>`;
+  }).join('');
+
+  document.getElementById('btn-wait').disabled = state.over;
+}
+
+function renderMatch() {
+  if (state.matchWith === null) return;
+  const ai = state.ais[state.matchWith];
+  document.getElementById('match-title').textContent = `对战 —— ${ai.name}`;
+  const assistInfo = assistOn()
+    ? `　已亮过 ${TYPES.map(t => `${ICONS[t]}${4 - ai.cards[t]}`).join(' ')}`
+    : '';
+  document.getElementById('match-info').innerHTML =
+    `<span>${ai.name}：${starsHtml(ai.stars)}　手牌 <b>${total(ai)}</b> 张${assistInfo}</span>` +
+    `<span>你：${starsHtml(state.player.stars)}</span>` +
+    `<span>${PERSONAS[ai.persona].desc}</span>`;
+  for (const t of TYPES) {
+    document.getElementById('cnt-' + t).textContent = '剩 ' + state.player.cards[t] + ' 张';
+    document.getElementById('btn-' + t).disabled = state.player.cards[t] === 0 || state.busy;
+  }
+}
+
+function starsHtml(n) {
+  let html = '';
+  for (let i = 0; i < Math.max(n, 3); i++) {
+    html += i < n ? '<span class="star">★</span>' : '<span class="star-lost">★</span>';
+  }
+  return html;
+}
+
+function showCard(who, type) {
+  const el = document.getElementById(who + '-played');
+  el.classList.remove('back');
+  document.getElementById(who + '-played-icon').textContent = ICONS[type];
+  document.getElementById(who + '-played-label').textContent = NAMES[type];
+}
+
+function resetArena() {
+  for (const who of ['my', 'enemy']) {
+    document.getElementById(who + '-played').classList.add('back');
+    document.getElementById(who + '-played-icon').textContent = '?';
+    document.getElementById(who + '-played-label').textContent = '';
+  }
+}
+
+function setBanner(text, cls) {
+  const b = document.getElementById('result-banner');
+  b.textContent = text;
+  b.className = 'result-banner ' + cls;
+}
+
+function log(html) {
+  const el = document.getElementById('log');
+  el.insertAdjacentHTML('afterbegin', '<div>' + html + '</div>');
+}
+
+initGame();
+</script>
+</body>
+</html>

@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>限定猜拳 - 希望之船</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+    background: linear-gradient(180deg, #0a0a1a 0%, #1a1a2e 50%, #16213e 100%);
+    color: #e0e0e0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px;
+  }
+  h1 {
+    color: #ffd700;
+    text-shadow: 0 0 12px rgba(255, 215, 0, 0.5);
+    letter-spacing: 8px;
+    margin-bottom: 4px;
+    font-size: 28px;
+  }
+  .subtitle { color: #888; font-size: 13px; margin-bottom: 16px; letter-spacing: 2px; }
+
+  .board {
+    width: 100%;
+    max-width: 720px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .player-panel {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 215, 0, 0.25);
+    border-radius: 10px;
+    padding: 12px 16px;
+  }
+  .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .panel-name { font-weight: bold; font-size: 16px; }
+  .enemy .panel-name { color: #ff6b6b; }
+  .me .panel-name { color: #4ecdc4; }
+
+  .stars { font-size: 20px; letter-spacing: 2px; }
+  .star { color: #ffd700; text-shadow: 0 0 8px rgba(255, 215, 0, 0.7); }
+  .star-lost { color: #333; }
+
+  .card-counts {
+    display: flex;
+    gap: 16px;
+    font-size: 14px;
+    color: #aaa;
+  }
+  .card-counts span b { color: #fff; font-size: 16px; }
+
+  .arena {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 32px;
+    min-height: 130px;
+    background: rgba(0, 0, 0, 0.35);
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 12px;
+  }
+  .played-card {
+    width: 84px;
+    height: 116px;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    font-size: 40px;
+    background: #f5f0e1;
+    color: #222;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6);
+    transition: transform 0.3s;
+  }
+  .played-card.back {
+    background: repeating-linear-gradient(45deg, #5a1a1a, #5a1a1a 8px, #7a2a2a 8px, #7a2a2a 16px);
+    color: transparent;
+  }
+  .played-card .label { font-size: 13px; margin-top: 4px; color: #555; }
+  .played-card.back .label { color: transparent; }
+  .vs { font-size: 24px; font-weight: bold; color: #ffd700; }
+
+  .result-banner {
+    text-align: center;
+    font-size: 20px;
+    font-weight: bold;
+    min-height: 30px;
+  }
+  .result-banner.win { color: #4ecdc4; }
+  .result-banner.lose { color: #ff6b6b; }
+  .result-banner.draw { color: #ffd700; }
+
+  .hand {
+    display: flex;
+    justify-content: center;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .hand-card {
+    width: 92px;
+    height: 124px;
+    border-radius: 8px;
+    background: #f5f0e1;
+    color: #222;
+    border: 2px solid transparent;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    font-size: 38px;
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s;
+    font-family: inherit;
+  }
+  .hand-card:hover:not(:disabled) {
+    transform: translateY(-8px);
+    box-shadow: 0 8px 20px rgba(255, 215, 0, 0.35);
+    border-color: #ffd700;
+  }
+  .hand-card:disabled {
+    background: #444;
+    color: #666;
+    cursor: not-allowed;
+  }
+  .hand-card .cname { font-size: 14px; font-weight: bold; margin-top: 4px; }
+  .hand-card .cnt { font-size: 13px; color: #b22222; margin-top: 2px; }
+  .hand-card:disabled .cnt { color: #666; }
+
+  .log {
+    background: rgba(0, 0, 0, 0.4);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13px;
+    color: #999;
+    max-height: 120px;
+    overflow-y: auto;
+    line-height: 1.7;
+  }
+  .log .round-tag { color: #ffd700; }
+
+  .overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 20px;
+    z-index: 10;
+  }
+  .overlay h2 { font-size: 42px; letter-spacing: 6px; }
+  .overlay .survive { color: #ffd700; text-shadow: 0 0 20px rgba(255, 215, 0, 0.8); }
+  .overlay .doom { color: #ff3333; text-shadow: 0 0 20px rgba(255, 51, 51, 0.8); }
+  .overlay p { color: #ccc; font-size: 16px; }
+  .overlay button {
+    padding: 12px 36px;
+    font-size: 18px;
+    background: #ffd700;
+    color: #1a1a2e;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: bold;
+    letter-spacing: 4px;
+  }
+  .overlay button:hover { background: #ffe44d; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+  <h1>限 定 猜 拳</h1>
+  <div class="subtitle">—— 希望之船 ESPOIR ——　<a href="hall.html" style="color:#888">会场模式（多人大厅）»</a></div>
+
+  <div class="board">
+    <!-- 对手面板 -->
+    <div class="player-panel enemy">
+      <div class="panel-header">
+        <span class="panel-name">对手（船上的赌徒）</span>
+        <span class="stars" id="enemy-stars"></span>
+      </div>
+      <div class="card-counts" id="enemy-counts"></div>
+    </div>
+
+    <!-- 出牌区 -->
+    <div class="arena">
+      <div class="played-card back" id="enemy-played"><span id="enemy-played-icon">?</span><span class="label" id="enemy-played-label"></span></div>
+      <div class="vs">VS</div>
+      <div class="played-card back" id="my-played"><span id="my-played-icon">?</span><span class="label" id="my-played-label"></span></div>
+    </div>
+
+    <div class="result-banner" id="result-banner">第 1 回合 —— 出牌吧！</div>
+
+    <!-- 我的手牌 -->
+    <div class="hand">
+      <button class="hand-card" id="btn-rock" onclick="playCard('rock')">
+        ✊<span class="cname">石头</span><span class="cnt" id="cnt-rock"></span>
+      </button>
+      <button class="hand-card" id="btn-scissors" onclick="playCard('scissors')">
+        ✌️<span class="cname">剪刀</span><span class="cnt" id="cnt-scissors"></span>
+      </button>
+      <button class="hand-card" id="btn-paper" onclick="playCard('paper')">
+        ✋<span class="cname">布</span><span class="cnt" id="cnt-paper"></span>
+      </button>
+    </div>
+
+    <!-- 我的面板 -->
+    <div class="player-panel me">
+      <div class="panel-header">
+        <span class="panel-name">你（开司）</span>
+        <span class="stars" id="my-stars"></span>
+      </div>
+    </div>
+
+    <!-- 战斗记录 -->
+    <div class="log" id="log"></div>
+  </div>
+
+  <!-- 结算画面 -->
+  <div class="overlay hidden" id="overlay">
+    <h2 id="overlay-title"></h2>
+    <p id="overlay-desc"></p>
+    <button onclick="initGame()">再 来 一 局</button>
+  </div>
+
+<script>
+const TYPES = ['rock', 'scissors', 'paper'];
+const NAMES = { rock: '石头', scissors: '剪刀', paper: '布' };
+const ICONS = { rock: '✊', scissors: '✌️', paper: '✋' };
+// beats[a] === b 表示 a 克制 b
+const BEATS = { rock: 'scissors', scissors: 'paper', paper: 'rock' };
+
+let state;
+
+function initGame() {
+  state = {
+    round: 1,
+    me:    { stars: 3, cards: { rock: 4, scissors: 4, paper: 4 } },
+    enemy: { stars: 3, cards: { rock: 4, scissors: 4, paper: 4 } },
+    over: false,
+    busy: false,
+  };
+  document.getElementById('overlay').classList.add('hidden');
+  document.getElementById('log').innerHTML = '';
+  setBanner(`第 1 回合 —— 出牌吧！`, '');
+  resetArena();
+  render();
+}
+
+function totalCards(p) {
+  return p.cards.rock + p.cards.scissors + p.cards.paper;
+}
+
+// AI 出牌：根据玩家剩余手牌的概率分布，选期望收益最高的牌（带随机扰动，避免被完全预测）
+function enemyChoose() {
+  const myCards = state.me.cards;
+  const total = totalCards(state.me);
+  let best = null, bestScore = -Infinity;
+  for (const t of TYPES) {
+    if (state.enemy.cards[t] === 0) continue;
+    // 期望 = 赢的概率 - 输的概率（按玩家剩牌分布估算）
+    const winP  = myCards[BEATS[t]] / total;
+    const loseP = myCards[Object.keys(BEATS).find(k => BEATS[k] === t)] / total;
+    const score = winP - loseP + Math.random() * 0.45;
+    if (score > bestScore) { bestScore = score; best = t; }
+  }
+  return best;
+}
+
+function playCard(myType) {
+  if (state.over || state.busy) return;
+  if (state.me.cards[myType] === 0) return;
+  state.busy = true;
+
+  const enemyType = enemyChoose();
+  state.me.cards[myType]--;
+  state.enemy.cards[enemyType]--;
+
+  // 翻牌展示
+  showCard('my', myType);
+  showCard('enemy', enemyType);
+
+  let outcome, cls;
+  if (myType === enemyType) {
+    outcome = '平局！双方的卡作废';
+    cls = 'draw';
+  } else if (BEATS[myType] === enemyType) {
+    state.me.stars++;
+    state.enemy.stars--;
+    outcome = '你赢了！夺走对方一颗星 ★';
+    cls = 'win';
+  } else {
+    state.me.stars--;
+    state.enemy.stars++;
+    outcome = '你输了…被夺走一颗星';
+    cls = 'lose';
+  }
+
+  log(`<span class="round-tag">[第${state.round}回合]</span> 你出${NAMES[myType]}，对手出${NAMES[enemyType]} —— ${outcome}`);
+  setBanner(outcome, cls);
+  render();
+
+  setTimeout(() => {
+    state.busy = false;
+    checkGameState();
+  }, 1200);
+}
+
+function checkGameState() {
+  // 星耗尽：立即出局
+  if (state.me.stars <= 0) return endGame(false, '星全部失去…你被带进了那个房间。');
+  if (state.enemy.stars <= 0) return endGame(true, '对手的星已耗尽！你生还了！');
+
+  // 12 回合打完：星 >= 3 生还
+  if (totalCards(state.me) === 0) {
+    if (state.me.stars >= 3) {
+      return endGame(true, `全部卡牌使用完毕，你保住了 ${state.me.stars} 颗星 —— 生还！`);
+    } else {
+      return endGame(false, `卡牌用尽，但你只剩 ${state.me.stars} 颗星（需要 3 颗）…出局。`);
+    }
+  }
+
+  state.round++;
+  setBanner(`第 ${state.round} 回合 —— 出牌吧！`, '');
+  resetArena();
+  render();
+}
+
+function endGame(won, desc) {
+  state.over = true;
+  const title = document.getElementById('overlay-title');
+  title.textContent = won ? '生 还' : '出 局';
+  title.className = won ? 'survive' : 'doom';
+  document.getElementById('overlay-desc').textContent = desc;
+  document.getElementById('overlay').classList.remove('hidden');
+}
+
+/* ---------- 渲染 ---------- */
+function render() {
+  renderStars('my-stars', state.me.stars);
+  renderStars('enemy-stars', state.enemy.stars);
+
+  for (const t of TYPES) {
+    document.getElementById('cnt-' + t).textContent = '剩 ' + state.me.cards[t] + ' 张';
+    document.getElementById('btn-' + t).disabled = state.me.cards[t] === 0 || state.over;
+  }
+
+  // 对手剩牌是公开情报（出过的牌大家都看得见）
+  document.getElementById('enemy-counts').innerHTML =
+    TYPES.map(t => `<span>${ICONS[t]} ${NAMES[t]} <b>${state.enemy.cards[t]}</b></span>`).join('') +
+    `<span>合计 <b>${totalCards(state.enemy)}</b> 张</span>`;
+}
+
+function renderStars(id, n) {
+  let html = '';
+  for (let i = 0; i < Math.max(n, 3); i++) {
+    html += i < n ? '<span class="star">★</span>' : '<span class="star-lost">★</span>';
+  }
+  document.getElementById(id).innerHTML = html;
+}
+
+function showCard(who, type) {
+  const el = document.getElementById(who + '-played');
+  el.classList.remove('back');
+  document.getElementById(who + '-played-icon').textContent = ICONS[type];
+  document.getElementById(who + '-played-label').textContent = NAMES[type];
+}
+
+function resetArena() {
+  for (const who of ['my', 'enemy']) {
+    const el = document.getElementById(who + '-played');
+    el.classList.add('back');
+    document.getElementById(who + '-played-icon').textContent = '?';
+    document.getElementById(who + '-played-label').textContent = '';
+  }
+}
+
+function setBanner(text, cls) {
+  const b = document.getElementById('result-banner');
+  b.textContent = text;
+  b.className = 'result-banner ' + cls;
+}
+
+function log(html) {
+  const el = document.getElementById('log');
+  el.insertAdjacentHTML('afterbegin', '<div>' + html + '</div>');
+}
+
+initGame();
+</script>
+</body>
+</html>
